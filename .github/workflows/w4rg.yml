@@ -1,0 +1,54 @@
+name: w4rg
+# reviewgate second-seat fixture: lets github-actions[bot] act as a non-author
+# reviewer/pusher (approve / request-changes / push-head) via GITHUB_TOKEN.
+# Requires can_approve_pull_request_reviews=true (org+repo) for the window.
+on:
+  workflow_dispatch:
+    inputs:
+      op:
+        description: approve | request-changes | push-head
+        required: true
+      pr:
+        description: PR number (approve / request-changes)
+        required: false
+        default: ""
+      branch:
+        description: head branch (push-head)
+        required: false
+        default: ""
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  act:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OP: ${{ inputs.op }}
+      PR: ${{ inputs.pr }}
+      BR: ${{ inputs.branch }}
+    steps:
+      - name: act
+        run: |
+          set -eux
+          case "$OP" in
+            approve)
+              gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+                -f event=APPROVE -f body="w4rg bot approval" ;;
+            request-changes)
+              gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+                -f event=REQUEST_CHANGES -f body="w4rg bot changes-requested" ;;
+            push-head)
+              SHA="$(gh api "repos/$GITHUB_REPOSITORY/contents/w4rg-bot-push.txt?ref=$BR" --jq .sha 2>/dev/null || true)"
+              if [ -n "$SHA" ]; then
+                gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/w4rg-bot-push.txt" \
+                  -f message="w4rg bot head push $GITHUB_RUN_ID" -f branch="$BR" -f sha="$SHA" \
+                  -f content="$(printf 'bot push %s' "$GITHUB_RUN_ID" | base64 | tr -d '\n')"
+              else
+                gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/w4rg-bot-push.txt" \
+                  -f message="w4rg bot head push $GITHUB_RUN_ID" -f branch="$BR" \
+                  -f content="$(printf 'bot push %s' "$GITHUB_RUN_ID" | base64 | tr -d '\n')"
+              fi ;;
+            *)
+              echo "unknown op $OP" >&2; exit 2 ;;
+          esac
